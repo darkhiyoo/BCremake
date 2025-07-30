@@ -35,8 +35,8 @@
 
         .tank {
             position: absolute;
-            width: 80px;
-            height: 80px;
+            width: 50px; /* Made smaller from 80px */
+            height: 50px; /* Made smaller from 80px */
             transition: none;
             z-index: 10;
             transform-origin: center center;
@@ -50,6 +50,27 @@
             image-rendering: -moz-crisp-edges;
             image-rendering: crisp-edges;
             filter: drop-shadow(2px 2px 4px rgba(0,0,0,0.5));
+            transform: scale(1.2); /* Better zoom for PNG display */
+        }
+
+        .enemy-tank {
+            position: absolute;
+            width: 50px; /* Made smaller from 80px */
+            height: 50px; /* Made smaller from 80px */
+            transition: none;
+            z-index: 9;
+            transform-origin: center center;
+        }
+
+        .enemy-tank img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            image-rendering: pixelated;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: crisp-edges;
+            filter: drop-shadow(2px 2px 4px rgba(255,0,0,0.5));
+            transform: scale(1.2); /* Better zoom for PNG display */
         }
 
         .bullet {
@@ -60,6 +81,16 @@
             border-radius: 50%;
             z-index: 5;
             box-shadow: 0 0 6px #ffff00;
+        }
+
+        .enemy-bullet {
+            position: absolute;
+            width: 6px;
+            height: 6px;
+            background: #ff4444;
+            border-radius: 50%;
+            z-index: 5;
+            box-shadow: 0 0 6px #ff4444;
         }
 
         #controls {
@@ -230,17 +261,29 @@
                 this.scoreElement = document.getElementById('score');
                 this.stageInfoElement = document.getElementById('stageInfo');
                 
-                // Tank state
+                // Tank state (adjusted for smaller size)
                 this.tankPosition = { x: 100, y: 200 };
                 this.tankDirection = 'up';
-                this.tankSpeed = 2; // Slowed down from 4 to 2
+                this.tankSpeed = 1.5; // Slowed down even more
                 this.isMoving = false;
+                
+                // Enemy state
+                this.enemy = null;
+                this.enemyPosition = { x: 300, y: 100 };
+                this.enemyDirection = 'down';
+                this.enemySpeed = 0.8; // Very slow enemy movement
+                this.enemyLastDirection = Date.now();
+                this.enemyDirectionInterval = 2000; // Changes direction every 2 seconds
+                this.enemyLastShot = 0;
+                this.enemyShootInterval = 2500; // Enemy shoots every 2.5 seconds
                 
                 // Bullet state
                 this.bullets = [];
-                this.bulletSpeed = 6; // Slightly slower bullets too
+                this.enemyBullets = [];
+                this.bulletSpeed = 3; // Much slower bullets
+                this.enemyBulletSpeed = 2.5; // Even slower enemy bullets
                 this.lastShotTime = 0;
-                this.shotCooldown = 200; // ms
+                this.shotCooldown = 300; // ms
                 
                 // Game state
                 this.score = 0;
@@ -255,9 +298,10 @@
                     'assists/stage4.png'
                 ];
                 
-                // Container dimensions
+                // Container dimensions (adjusted for smaller tanks)
                 this.containerWidth = window.innerWidth;
                 this.containerHeight = window.innerHeight * 0.6;
+                this.tankSize = 50; // Updated tank size
                 
                 // Input state
                 this.pressedKeys = new Set();
@@ -267,9 +311,216 @@
                 this.updateTankPosition();
                 this.updateTankRotation();
                 this.loadStage();
+                this.spawnEnemy(); // Spawn first enemy
                 this.gameLoop();
                 
-                console.log('Multi-Stage Tank Battle City Game initialized');
+                console.log('Multi-Stage Tank Battle City Game initialized with enemy AI');
+            }
+
+            spawnEnemy() {
+                // Remove existing enemy if any
+                if (this.enemy) {
+                    this.enemy.remove();
+                }
+
+                // Create new enemy
+                this.enemy = document.createElement('div');
+                this.enemy.className = 'enemy-tank';
+                this.enemy.innerHTML = '<img src="assists/ai-red.png" alt="Enemy Tank" onerror="this.onerror=null; this.src=\'assists/ai-red.jpg\';">';
+                
+                // Random spawn position (but not too close to player)
+                this.enemyPosition.x = Math.random() * (this.containerWidth - this.tankSize);
+                this.enemyPosition.y = Math.random() * (this.containerHeight - this.tankSize);
+                
+                // Make sure enemy doesn't spawn too close to player
+                const distance = Math.sqrt(
+                    Math.pow(this.enemyPosition.x - this.tankPosition.x, 2) + 
+                    Math.pow(this.enemyPosition.y - this.tankPosition.y, 2)
+                );
+                
+                if (distance < 150) {
+                    // Respawn further away
+                    this.enemyPosition.x = this.containerWidth - 100;
+                    this.enemyPosition.y = 50;
+                }
+                
+                this.updateEnemyPosition();
+                this.updateEnemyRotation();
+                this.gameContainer.appendChild(this.enemy);
+                
+                console.log('Enemy spawned at:', this.enemyPosition);
+            }
+
+            updateEnemyPosition() {
+                if (this.enemy) {
+                    this.enemy.style.left = this.enemyPosition.x + 'px';
+                    this.enemy.style.top = this.enemyPosition.y + 'px';
+                }
+            }
+
+            updateEnemyRotation() {
+                if (!this.enemy) return;
+                
+                let rotation = 0;
+                switch(this.enemyDirection) {
+                    case 'up': 
+                        rotation = -225;
+                        break;
+                    case 'right': 
+                        rotation = -135;
+                        break;
+                    case 'down': 
+                        rotation = -45;
+                        break;
+                    case 'left': 
+                        rotation = 45;
+                        break;
+                }
+                
+                this.enemy.style.transform = `rotate(${rotation}deg)`;
+            }
+
+            updateEnemy() {
+                if (!this.enemy) return;
+
+                const currentTime = Date.now();
+                
+                // Change enemy direction periodically
+                if (currentTime - this.enemyLastDirection > this.enemyDirectionInterval) {
+                    const directions = ['up', 'down', 'left', 'right'];
+                    this.enemyDirection = directions[Math.floor(Math.random() * directions.length)];
+                    this.updateEnemyRotation();
+                    this.enemyLastDirection = currentTime;
+                }
+                
+                // Move enemy
+                let newX = this.enemyPosition.x;
+                let newY = this.enemyPosition.y;
+                
+                switch(this.enemyDirection) {
+                    case 'up':
+                        newY -= this.enemySpeed;
+                        break;
+                    case 'down':
+                        newY += this.enemySpeed;
+                        break;
+                    case 'left':
+                        newX -= this.enemySpeed;
+                        break;
+                    case 'right':
+                        newX += this.enemySpeed;
+                        break;
+                }
+                
+                // Keep enemy within bounds
+                newX = Math.max(0, Math.min(this.containerWidth - this.tankSize, newX));
+                newY = Math.max(0, Math.min(this.containerHeight - this.tankSize, newY));
+                
+                this.enemyPosition.x = newX;
+                this.enemyPosition.y = newY;
+                this.updateEnemyPosition();
+                
+                // Enemy shooting
+                if (currentTime - this.enemyLastShot > this.enemyShootInterval) {
+                    this.enemyShoot();
+                    this.enemyLastShot = currentTime;
+                }
+            }
+
+            enemyShoot() {
+                if (!this.enemy) return;
+                
+                const bullet = document.createElement('div');
+                bullet.className = 'enemy-bullet';
+                
+                const enemyCenter = {
+                    x: this.enemyPosition.x + 25, // Center of 50px tank
+                    y: this.enemyPosition.y + 25
+                };
+                
+                let bulletX = enemyCenter.x - 3;
+                let bulletY = enemyCenter.y - 3;
+                
+                // Position bullet at enemy tank edge
+                switch(this.enemyDirection) {
+                    case 'up':
+                        bulletY = this.enemyPosition.y - 8;
+                        break;
+                    case 'down':
+                        bulletY = this.enemyPosition.y + 58;
+                        break;
+                    case 'left':
+                        bulletX = this.enemyPosition.x - 8;
+                        break;
+                    case 'right':
+                        bulletX = this.enemyPosition.x + 58;
+                        break;
+                }
+                
+                bullet.style.left = bulletX + 'px';
+                bullet.style.top = bulletY + 'px';
+                
+                this.gameContainer.appendChild(bullet);
+                
+                this.enemyBullets.push({
+                    element: bullet,
+                    x: bulletX,
+                    y: bulletY,
+                    direction: this.enemyDirection
+                });
+                
+                console.log('Enemy fired bullet');
+            }
+
+            updateEnemyBullets() {
+                this.enemyBullets = this.enemyBullets.filter(bullet => {
+                    // Move bullet based on its direction
+                    switch(bullet.direction) {
+                        case 'up':
+                            bullet.y -= this.enemyBulletSpeed;
+                            break;
+                        case 'down':
+                            bullet.y += this.enemyBulletSpeed;
+                            break;
+                        case 'left':
+                            bullet.x -= this.enemyBulletSpeed;
+                            break;
+                        case 'right':
+                            bullet.x += this.enemyBulletSpeed;
+                            break;
+                    }
+
+                    bullet.element.style.left = bullet.x + 'px';
+                    bullet.element.style.top = bullet.y + 'px';
+
+                    // Check collision with player
+                    if (this.checkCollision(bullet, this.tankPosition, this.tankSize)) {
+                        bullet.element.remove();
+                        this.handlePlayerHit();
+                        return false;
+                    }
+
+                    // Remove bullets that are off screen
+                    if (bullet.x < -20 || bullet.x > this.containerWidth + 20 || 
+                        bullet.y < -20 || bullet.y > this.containerHeight + 20) {
+                        bullet.element.remove();
+                        return false;
+                    }
+
+                    return true;
+                });
+            }
+
+            checkCollision(bullet, tankPos, tankSize) {
+                return (bullet.x >= tankPos.x && bullet.x <= tankPos.x + tankSize &&
+                        bullet.y >= tankPos.y && bullet.y <= tankPos.y + tankSize);
+            }
+
+            handlePlayerHit() {
+                console.log('Player hit by enemy bullet!');
+                // Reset player position
+                this.tankPosition = { x: 100, y: 200 };
+                this.updateTankPosition();
             }
 
             setupControls() {
@@ -483,6 +734,9 @@
                 // Reset tank position when loading new stage
                 this.tankPosition = { x: 100, y: 200 };
                 this.updateTankPosition();
+                
+                // Spawn new enemy when changing stage
+                this.spawnEnemy();
             }
 
             nextStage() {
@@ -525,9 +779,8 @@
                 }
 
                 // Keep tank within bounds
-                const tankSize = 80;
-                newX = Math.max(0, Math.min(this.containerWidth - tankSize, newX));
-                newY = Math.max(0, Math.min(this.containerHeight - tankSize, newY));
+                newX = Math.max(0, Math.min(this.containerWidth - this.tankSize, newX));
+                newY = Math.max(0, Math.min(this.containerHeight - this.tankSize, newY));
 
                 // Update position if moved
                 if (moved && (newX !== this.tankPosition.x || newY !== this.tankPosition.y)) {
@@ -550,8 +803,8 @@
 
             getBulletStartPosition() {
                 const tankCenter = {
-                    x: this.tankPosition.x + 40, // Center of 80px tank
-                    y: this.tankPosition.y + 40
+                    x: this.tankPosition.x + 25, // Center of 50px tank
+                    y: this.tankPosition.y + 25
                 };
                 
                 let bulletX = tankCenter.x - 3; // Center bullet
@@ -563,13 +816,13 @@
                         bulletY = this.tankPosition.y - 8;
                         break;
                     case 'down':
-                        bulletY = this.tankPosition.y + 88;
+                        bulletY = this.tankPosition.y + 58;
                         break;
                     case 'left':
                         bulletX = this.tankPosition.x - 8;
                         break;
                     case 'right':
-                        bulletX = this.tankPosition.x + 88;
+                        bulletX = this.tankPosition.x + 58;
                         break;
                 }
 
@@ -633,6 +886,13 @@
                     bullet.element.style.left = bullet.x + 'px';
                     bullet.element.style.top = bullet.y + 'px';
 
+                    // Check collision with enemy
+                    if (this.enemy && this.checkCollision(bullet, this.enemyPosition, this.tankSize)) {
+                        bullet.element.remove();
+                        this.handleEnemyHit();
+                        return false;
+                    }
+
                     // Remove bullets that are off screen
                     if (bullet.x < -20 || bullet.x > this.containerWidth + 20 || 
                         bullet.y < -20 || bullet.y > this.containerHeight + 20) {
@@ -644,9 +904,27 @@
                 });
             }
 
+            handleEnemyHit() {
+                console.log('Enemy hit!');
+                this.score += 100;
+                this.scoreElement.textContent = `Score: ${this.score}`;
+                
+                // Remove enemy and spawn a new one after a delay
+                if (this.enemy) {
+                    this.enemy.remove();
+                    this.enemy = null;
+                }
+                
+                setTimeout(() => {
+                    this.spawnEnemy();
+                }, 1000); // Respawn enemy after 1 second
+            }
+
             gameLoop() {
                 this.moveTank();
+                this.updateEnemy();
                 this.updateBullets();
+                this.updateEnemyBullets();
                 requestAnimationFrame(() => this.gameLoop());
             }
         }

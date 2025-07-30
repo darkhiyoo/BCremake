@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tank Battle City Style</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #2a2a2a;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+        }
+
+        #gameContainer {
+            position: relative;
+            width: 100vw;
+            height: 60vh;
+            background: #1a1a1a;
+            border: 2px solid #444;
+            overflow: hidden;
+        }
+
+        #gameCanvas {
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(circle at 20% 30%, #333 1px, transparent 1px),
+                radial-gradient(circle at 80% 70%, #333 1px, transparent 1px),
+                #2a2a2a;
+            background-size: 50px 50px, 60px 60px;
+        }
+
+        .tank {
+            position: absolute;
+            width: 60px;
+            height: 80px;
+            transition: none;
+            z-index: 10;
+        }
+
+        .tank img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            image-rendering: pixelated;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: crisp-edges;
+        }
+
+        .bullet {
+            position: absolute;
+            width: 4px;
+            height: 8px;
+            background: #ffff00;
+            border-radius: 2px;
+            z-index: 5;
+            box-shadow: 0 0 4px #ffff00;
+        }
+
+        #controls {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 40vh;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .dpad {
+            position: relative;
+            width: 120px;
+            height: 120px;
+        }
+
+        .dpad-button {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid #fff;
+            color: #fff;
+            font-size: 18px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            user-select: none;
+            touch-action: manipulation;
+        }
+
+        .dpad-up {
+            top: 0;
+            left: 40px;
+            width: 40px;
+            height: 40px;
+        }
+
+        .dpad-down {
+            bottom: 0;
+            left: 40px;
+            width: 40px;
+            height: 40px;
+        }
+
+        .dpad-left {
+            left: 0;
+            top: 40px;
+            width: 40px;
+            height: 40px;
+        }
+
+        .dpad-right {
+            right: 0;
+            top: 40px;
+            width: 40px;
+            height: 40px;
+        }
+
+        .dpad-center {
+            top: 40px;
+            left: 40px;
+            width: 40px;
+            height: 40px;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .shoot-button {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: rgba(255, 0, 0, 0.3);
+            border: 3px solid #ff0000;
+            color: #fff;
+            font-size: 14px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            user-select: none;
+            touch-action: manipulation;
+        }
+
+        .button-pressed {
+            background: rgba(255, 255, 255, 0.5) !important;
+            transform: scale(0.95);
+        }
+
+        .shoot-pressed {
+            background: rgba(255, 0, 0, 0.7) !important;
+            transform: scale(0.95);
+        }
+
+        #score {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: #fff;
+            font-size: 18px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+        <div id="tank" class="tank">
+            <img src="tankp1.png" alt="Tank" onerror="this.onerror=null; this.src='tankp1.jpg';">
+        </div>
+        <div id="score">Score: 0</div>
+    </div>
+
+    <div id="controls">
+        <div class="dpad">
+            <div class="dpad-button dpad-up" data-direction="up">↑</div>
+            <div class="dpad-button dpad-down" data-direction="down">↓</div>
+            <div class="dpad-button dpad-left" data-direction="left">←</div>
+            <div class="dpad-button dpad-right" data-direction="right">→</div>
+            <div class="dpad-center"></div>
+        </div>
+        <div class="shoot-button" id="shootButton">FIRE</div>
+    </div>
+
+    <script>
+        class TankGame {
+            constructor() {
+                this.tank = document.getElementById('tank');
+                this.gameContainer = document.getElementById('gameContainer');
+                this.scoreElement = document.getElementById('score');
+                
+                this.tankPosition = { x: 50, y: 300 };
+                this.tankDirection = 'up';
+                this.tankSpeed = 3;
+                this.bullets = [];
+                this.bulletSpeed = 5;
+                this.score = 0;
+                
+                this.containerWidth = window.innerWidth;
+                this.containerHeight = window.innerHeight * 0.6;
+                
+                this.pressedKeys = new Set();
+                this.setupControls();
+                this.updateTankPosition();
+                this.gameLoop();
+            }
+
+            setupControls() {
+                // Touch controls for D-pad
+                const dpadButtons = document.querySelectorAll('.dpad-button');
+                dpadButtons.forEach(button => {
+                    button.addEventListener('touchstart', (e) => {
+                        e.preventDefault();
+                        const direction = button.dataset.direction;
+                        if (direction) {
+                            this.pressedKeys.add(direction);
+                            button.classList.add('button-pressed');
+                        }
+                    });
+
+                    button.addEventListener('touchend', (e) => {
+                        e.preventDefault();
+                        const direction = button.dataset.direction;
+                        if (direction) {
+                            this.pressedKeys.delete(direction);
+                            button.classList.remove('button-pressed');
+                        }
+                    });
+
+                    // Mouse events for desktop testing
+                    button.addEventListener('mousedown', (e) => {
+                        e.preventDefault();
+                        const direction = button.dataset.direction;
+                        if (direction) {
+                            this.pressedKeys.add(direction);
+                            button.classList.add('button-pressed');
+                        }
+                    });
+
+                    button.addEventListener('mouseup', (e) => {
+                        e.preventDefault();
+                        const direction = button.dataset.direction;
+                        if (direction) {
+                            this.pressedKeys.delete(direction);
+                            button.classList.remove('button-pressed');
+                        }
+                    });
+                });
+
+                // Shoot button
+                const shootButton = document.getElementById('shootButton');
+                shootButton.addEventListener('touchstart', (e) => {
+                    e.preventDefault();
+                    this.shoot();
+                    shootButton.classList.add('shoot-pressed');
+                    setTimeout(() => shootButton.classList.remove('shoot-pressed'), 150);
+                });
+
+                shootButton.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    this.shoot();
+                    shootButton.classList.add('shoot-pressed');
+                    setTimeout(() => shootButton.classList.remove('shoot-pressed'), 150);
+                });
+
+                // Keyboard controls for desktop
+                window.addEventListener('keydown', (e) => {
+                    switch(e.key) {
+                        case 'ArrowUp':
+                        case 'w':
+                        case 'W':
+                            this.pressedKeys.add('up');
+                            break;
+                        case 'ArrowDown':
+                        case 's':
+                        case 'S':
+                            this.pressedKeys.add('down');
+                            break;
+                        case 'ArrowLeft':
+                        case 'a':
+                        case 'A':
+                            this.pressedKeys.add('left');
+                            break;
+                        case 'ArrowRight':
+                        case 'd':
+                        case 'D':
+                            this.pressedKeys.add('right');
+                            break;
+                        case ' ':
+                        case 'Enter':
+                            e.preventDefault();
+                            this.shoot();
+                            break;
+                    }
+                });
+
+                window.addEventListener('keyup', (e) => {
+                    switch(e.key) {
+                        case 'ArrowUp':
+                        case 'w':
+                        case 'W':
+                            this.pressedKeys.delete('up');
+                            break;
+                        case 'ArrowDown':
+                        case 's':
+                        case 'S':
+                            this.pressedKeys.delete('down');
+                            break;
+                        case 'ArrowLeft':
+                        case 'a':
+                        case 'A':
+                            this.pressedKeys.delete('left');
+                            break;
+                        case 'ArrowRight':
+                        case 'd':
+                        case 'D':
+                            this.pressedKeys.delete('right');
+                            break;
+                    }
+                });
+
+                // Handle window resize
+                window.addEventListener('resize', () => {
+                    this.containerWidth = window.innerWidth;
+                    this.containerHeight = window.innerHeight * 0.6;
+                });
+            }
+
+            moveTank() {
+                let moved = false;
+                let newX = this.tankPosition.x;
+                let newY = this.tankPosition.y;
+
+                if (this.pressedKeys.has('up')) {
+                    newY -= this.tankSpeed;
+                    this.tankDirection = 'up';
+                    moved = true;
+                }
+                if (this.pressedKeys.has('down')) {
+                    newY += this.tankSpeed;
+                    this.tankDirection = 'down';
+                    moved = true;
+                }
+                if (this.pressedKeys.has('left')) {
+                    newX -= this.tankSpeed;
+                    this.tankDirection = 'left';
+                    moved = true;
+                }
+                if (this.pressedKeys.has('right')) {
+                    newX += this.tankSpeed;
+                    this.tankDirection = 'right';
+                    moved = true;
+                }
+
+                // Keep tank within bounds
+                newX = Math.max(0, Math.min(this.containerWidth - 60, newX));
+                newY = Math.max(0, Math.min(this.containerHeight - 80, newY));
+
+                if (moved) {
+                    this.tankPosition.x = newX;
+                    this.tankPosition.y = newY;
+                    this.updateTankPosition();
+                    this.updateTankRotation();
+                }
+            }
+
+            updateTankPosition() {
+                this.tank.style.left = this.tankPosition.x + 'px';
+                this.tank.style.top = this.tankPosition.y + 'px';
+            }
+
+            updateTankRotation() {
+                let rotation = 0;
+                switch(this.tankDirection) {
+                    case 'up': rotation = 0; break;
+                    case 'right': rotation = 90; break;
+                    case 'down': rotation = 180; break;
+                    case 'left': rotation = 270; break;
+                }
+                this.tank.style.transform = `rotate(${rotation}deg)`;
+            }
+
+            shoot() {
+                const bullet = document.createElement('div');
+                bullet.className = 'bullet';
+                
+                let bulletX = this.tankPosition.x + 28; // Center of tank
+                let bulletY = this.tankPosition.y + 40; // Center of tank
+                
+                // Adjust bullet starting position based on direction
+                switch(this.tankDirection) {
+                    case 'up':
+                        bulletY = this.tankPosition.y - 5;
+                        break;
+                    case 'down':
+                        bulletY = this.tankPosition.y + 85;
+                        break;
+                    case 'left':
+                        bulletX = this.tankPosition.x - 5;
+                        break;
+                    case 'right':
+                        bulletX = this.tankPosition.x + 65;
+                        break;
+                }
+
+                bullet.style.left = bulletX + 'px';
+                bullet.style.top = bulletY + 'px';
+                
+                this.gameContainer.appendChild(bullet);
+                
+                this.bullets.push({
+                    element: bullet,
+                    x: bulletX,
+                    y: bulletY,
+                    direction: this.tankDirection
+                });
+
+                // Play shoot sound effect (visual feedback)
+                bullet.style.boxShadow = '0 0 8px #ffff00, 0 0 12px #ffff00';
+                setTimeout(() => {
+                    if (bullet.parentNode) {
+                        bullet.style.boxShadow = '0 0 4px #ffff00';
+                    }
+                }, 100);
+            }
+
+            updateBullets() {
+                this.bullets = this.bullets.filter(bullet => {
+                    switch(bullet.direction) {
+                        case 'up':
+                            bullet.y -= this.bulletSpeed;
+                            break;
+                        case 'down':
+                            bullet.y += this.bulletSpeed;
+                            break;
+                        case 'left':
+                            bullet.x -= this.bulletSpeed;
+                            break;
+                        case 'right':
+                            bullet.x += this.bulletSpeed;
+                            break;
+                    }
+
+                    bullet.element.style.left = bullet.x + 'px';
+                    bullet.element.style.top = bullet.y + 'px';
+
+                    // Remove bullets that are off screen
+                    if (bullet.x < 0 || bullet.x > this.containerWidth || 
+                        bullet.y < 0 || bullet.y > this.containerHeight) {
+                        bullet.element.remove();
+                        return false;
+                    }
+
+                    return true;
+                });
+            }
+
+            gameLoop() {
+                this.moveTank();
+                this.updateBullets();
+                requestAnimationFrame(() => this.gameLoop());
+            }
+        }
+
+        // Start the game when page loads
+        window.addEventListener('load', () => {
+            new TankGame();
+        });
+
+        // Prevent scrolling on mobile
+        document.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+        }, { passive: false });
+    </script>
+</body>
+</html>

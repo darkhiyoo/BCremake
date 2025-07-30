@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tank Battle City Style</title>
+    <title>Tank Battle City Style - Multi Stage</title>
     <style>
         body {
             margin: 0;
@@ -28,19 +28,18 @@
         #gameCanvas {
             width: 100%;
             height: 100%;
-            background: 
-                radial-gradient(circle at 20% 30%, #333 1px, transparent 1px),
-                radial-gradient(circle at 80% 70%, #333 1px, transparent 1px),
-                #2a2a2a;
-            background-size: 50px 50px, 60px 60px;
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
         }
 
         .tank {
             position: absolute;
-            width: 60px;
+            width: 80px;
             height: 80px;
             transition: none;
             z-index: 10;
+            transform-origin: center center;
         }
 
         .tank img {
@@ -50,16 +49,17 @@
             image-rendering: pixelated;
             image-rendering: -moz-crisp-edges;
             image-rendering: crisp-edges;
+            filter: drop-shadow(2px 2px 4px rgba(0,0,0,0.5));
         }
 
         .bullet {
             position: absolute;
-            width: 4px;
-            height: 8px;
+            width: 6px;
+            height: 6px;
             background: #ffff00;
-            border-radius: 2px;
+            border-radius: 50%;
             z-index: 5;
-            box-shadow: 0 0 4px #ffff00;
+            box-shadow: 0 0 6px #ffff00;
         }
 
         #controls {
@@ -124,12 +124,10 @@
             height: 40px;
         }
 
-        .dpad-center {
-            top: 40px;
-            left: 40px;
-            width: 40px;
-            height: 40px;
-            background: rgba(255, 255, 255, 0.1);
+        .action-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
         }
 
         .shoot-button {
@@ -148,6 +146,22 @@
             touch-action: manipulation;
         }
 
+        .stage-button {
+            width: 80px;
+            height: 40px;
+            border-radius: 20px;
+            background: rgba(0, 255, 0, 0.3);
+            border: 2px solid #00ff00;
+            color: #fff;
+            font-size: 12px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            user-select: none;
+            touch-action: manipulation;
+        }
+
         .button-pressed {
             background: rgba(255, 255, 255, 0.5) !important;
             transform: scale(0.95);
@@ -158,6 +172,11 @@
             transform: scale(0.95);
         }
 
+        .stage-pressed {
+            background: rgba(0, 255, 0, 0.7) !important;
+            transform: scale(0.95);
+        }
+
         #score {
             position: absolute;
             top: 10px;
@@ -165,6 +184,17 @@
             color: #fff;
             font-size: 18px;
             font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+        }
+
+        #stageInfo {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            color: #fff;
+            font-size: 16px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
         }
     </style>
 </head>
@@ -172,9 +202,10 @@
     <div id="gameContainer">
         <canvas id="gameCanvas"></canvas>
         <div id="tank" class="tank">
-            <img src="tankp1.png" alt="Tank" onerror="this.onerror=null; this.src='tankp1.jpg';">
+            <img src="assists/tankp1.png" alt="3D Tank" onerror="this.onerror=null; this.src='assists/tankp1.jpg';">
         </div>
         <div id="score">Score: 0</div>
+        <div id="stageInfo">Stage: 1</div>
     </div>
 
     <div id="controls">
@@ -183,9 +214,11 @@
             <div class="dpad-button dpad-down" data-direction="down">↓</div>
             <div class="dpad-button dpad-left" data-direction="left">←</div>
             <div class="dpad-button dpad-right" data-direction="right">→</div>
-            <div class="dpad-center"></div>
         </div>
-        <div class="shoot-button" id="shootButton">FIRE</div>
+        <div class="action-buttons">
+            <div class="shoot-button" id="shootButton">FIRE</div>
+            <div class="stage-button" id="stageButton">NEXT<br>STAGE</div>
+        </div>
     </div>
 
     <script>
@@ -193,33 +226,62 @@
             constructor() {
                 this.tank = document.getElementById('tank');
                 this.gameContainer = document.getElementById('gameContainer');
+                this.gameCanvas = document.getElementById('gameCanvas');
                 this.scoreElement = document.getElementById('score');
+                this.stageInfoElement = document.getElementById('stageInfo');
                 
-                this.tankPosition = { x: 50, y: 300 };
+                // Tank state
+                this.tankPosition = { x: 100, y: 200 };
                 this.tankDirection = 'up';
-                this.tankSpeed = 3;
-                this.bullets = [];
-                this.bulletSpeed = 5;
-                this.score = 0;
+                this.tankSpeed = 2; // Slowed down from 4 to 2
+                this.isMoving = false;
                 
+                // Bullet state
+                this.bullets = [];
+                this.bulletSpeed = 6; // Slightly slower bullets too
+                this.lastShotTime = 0;
+                this.shotCooldown = 200; // ms
+                
+                // Game state
+                this.score = 0;
+                this.currentStage = 1;
+                this.maxStages = 4;
+                
+                // Stage backgrounds
+                this.stageBackgrounds = [
+                    'assists/stage1.png',
+                    'assists/stage2.png', 
+                    'assists/stage3.png',
+                    'assists/stage4.png'
+                ];
+                
+                // Container dimensions
                 this.containerWidth = window.innerWidth;
                 this.containerHeight = window.innerHeight * 0.6;
                 
+                // Input state
                 this.pressedKeys = new Set();
+                this.currentDirection = null;
+                
                 this.setupControls();
                 this.updateTankPosition();
+                this.updateTankRotation();
+                this.loadStage();
                 this.gameLoop();
+                
+                console.log('Multi-Stage Tank Battle City Game initialized');
             }
 
             setupControls() {
                 // Touch controls for D-pad
                 const dpadButtons = document.querySelectorAll('.dpad-button');
                 dpadButtons.forEach(button => {
+                    // Touch events
                     button.addEventListener('touchstart', (e) => {
                         e.preventDefault();
                         const direction = button.dataset.direction;
                         if (direction) {
-                            this.pressedKeys.add(direction);
+                            this.handleDirectionPress(direction);
                             button.classList.add('button-pressed');
                         }
                     });
@@ -228,17 +290,17 @@
                         e.preventDefault();
                         const direction = button.dataset.direction;
                         if (direction) {
-                            this.pressedKeys.delete(direction);
+                            this.handleDirectionRelease(direction);
                             button.classList.remove('button-pressed');
                         }
                     });
 
-                    // Mouse events for desktop testing
+                    // Mouse events for desktop
                     button.addEventListener('mousedown', (e) => {
                         e.preventDefault();
                         const direction = button.dataset.direction;
                         if (direction) {
-                            this.pressedKeys.add(direction);
+                            this.handleDirectionPress(direction);
                             button.classList.add('button-pressed');
                         }
                     });
@@ -247,7 +309,7 @@
                         e.preventDefault();
                         const direction = button.dataset.direction;
                         if (direction) {
-                            this.pressedKeys.delete(direction);
+                            this.handleDirectionRelease(direction);
                             button.classList.remove('button-pressed');
                         }
                     });
@@ -269,59 +331,91 @@
                     setTimeout(() => shootButton.classList.remove('shoot-pressed'), 150);
                 });
 
-                // Keyboard controls for desktop
+                // Stage button
+                const stageButton = document.getElementById('stageButton');
+                stageButton.addEventListener('touchstart', (e) => {
+                    e.preventDefault();
+                    this.nextStage();
+                    stageButton.classList.add('stage-pressed');
+                    setTimeout(() => stageButton.classList.remove('stage-pressed'), 150);
+                });
+
+                stageButton.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    this.nextStage();
+                    stageButton.classList.add('stage-pressed');
+                    setTimeout(() => stageButton.classList.remove('stage-pressed'), 150);
+                });
+
+                // Keyboard controls
                 window.addEventListener('keydown', (e) => {
+                    let direction = null;
                     switch(e.key) {
                         case 'ArrowUp':
                         case 'w':
                         case 'W':
-                            this.pressedKeys.add('up');
+                            direction = 'up';
                             break;
                         case 'ArrowDown':
                         case 's':
                         case 'S':
-                            this.pressedKeys.add('down');
+                            direction = 'down';
                             break;
                         case 'ArrowLeft':
                         case 'a':
                         case 'A':
-                            this.pressedKeys.add('left');
+                            direction = 'left';
                             break;
                         case 'ArrowRight':
                         case 'd':
                         case 'D':
-                            this.pressedKeys.add('right');
+                            direction = 'right';
                             break;
                         case ' ':
                         case 'Enter':
                             e.preventDefault();
                             this.shoot();
-                            break;
+                            return;
+                        case 'n':
+                        case 'N':
+                            e.preventDefault();
+                            this.nextStage();
+                            return;
+                    }
+                    
+                    if (direction) {
+                        e.preventDefault();
+                        this.handleDirectionPress(direction);
                     }
                 });
 
                 window.addEventListener('keyup', (e) => {
+                    let direction = null;
                     switch(e.key) {
                         case 'ArrowUp':
                         case 'w':
                         case 'W':
-                            this.pressedKeys.delete('up');
+                            direction = 'up';
                             break;
                         case 'ArrowDown':
                         case 's':
                         case 'S':
-                            this.pressedKeys.delete('down');
+                            direction = 'down';
                             break;
                         case 'ArrowLeft':
                         case 'a':
                         case 'A':
-                            this.pressedKeys.delete('left');
+                            direction = 'left';
                             break;
                         case 'ArrowRight':
                         case 'd':
                         case 'D':
-                            this.pressedKeys.delete('right');
+                            direction = 'right';
                             break;
+                    }
+                    
+                    if (direction) {
+                        this.handleDirectionRelease(direction);
                     }
                 });
 
@@ -332,41 +426,120 @@
                 });
             }
 
+            handleDirectionPress(direction) {
+                console.log(`Direction pressed: ${direction}`);
+                
+                // Immediately change tank direction (Battle City behavior)
+                if (this.tankDirection !== direction) {
+                    this.tankDirection = direction;
+                    this.updateTankRotation();
+                    console.log(`Tank direction changed to: ${direction}`);
+                }
+                
+                this.pressedKeys.add(direction);
+                this.currentDirection = direction;
+            }
+
+            handleDirectionRelease(direction) {
+                console.log(`Direction released: ${direction}`);
+                this.pressedKeys.delete(direction);
+                
+                // If this was the current direction, stop moving
+                if (this.currentDirection === direction) {
+                    this.currentDirection = null;
+                    this.isMoving = false;
+                }
+            }
+
+            updateTankRotation() {
+                let rotation = 0;
+                
+                switch(this.tankDirection) {
+                    case 'up': 
+                        rotation = -225;
+                        break;
+                    case 'right': 
+                        rotation = -135;
+                        break;
+                    case 'down': 
+                        rotation = -45;
+                        break;
+                    case 'left': 
+                        rotation = 45;
+                        break;
+                }
+                
+                this.tank.style.transform = `rotate(${rotation}deg)`;
+                console.log(`Tank rotated to: ${rotation} degrees for direction: ${this.tankDirection}`);
+            }
+
+            loadStage() {
+                const backgroundImage = this.stageBackgrounds[this.currentStage - 1];
+                this.gameCanvas.style.backgroundImage = `url('${backgroundImage}')`;
+                this.stageInfoElement.textContent = `Stage: ${this.currentStage}`;
+                
+                console.log(`Loaded Stage ${this.currentStage}: ${backgroundImage}`);
+                
+                // Reset tank position when loading new stage
+                this.tankPosition = { x: 100, y: 200 };
+                this.updateTankPosition();
+            }
+
+            nextStage() {
+                this.currentStage++;
+                if (this.currentStage > this.maxStages) {
+                    this.currentStage = 1; // Loop back to stage 1
+                }
+                this.loadStage();
+                console.log(`Advanced to Stage ${this.currentStage}`);
+            }
+
             moveTank() {
-                let moved = false;
+                if (!this.currentDirection) {
+                    this.isMoving = false;
+                    return;
+                }
+
                 let newX = this.tankPosition.x;
                 let newY = this.tankPosition.y;
+                let moved = false;
 
-                if (this.pressedKeys.has('up')) {
-                    newY -= this.tankSpeed;
-                    this.tankDirection = 'up';
-                    moved = true;
-                }
-                if (this.pressedKeys.has('down')) {
-                    newY += this.tankSpeed;
-                    this.tankDirection = 'down';
-                    moved = true;
-                }
-                if (this.pressedKeys.has('left')) {
-                    newX -= this.tankSpeed;
-                    this.tankDirection = 'left';
-                    moved = true;
-                }
-                if (this.pressedKeys.has('right')) {
-                    newX += this.tankSpeed;
-                    this.tankDirection = 'right';
-                    moved = true;
+                // Calculate new position based on current direction
+                switch(this.currentDirection) {
+                    case 'up':
+                        newY -= this.tankSpeed;
+                        moved = true;
+                        break;
+                    case 'down':
+                        newY += this.tankSpeed;
+                        moved = true;
+                        break;
+                    case 'left':
+                        newX -= this.tankSpeed;
+                        moved = true;
+                        break;
+                    case 'right':
+                        newX += this.tankSpeed;
+                        moved = true;
+                        break;
                 }
 
                 // Keep tank within bounds
-                newX = Math.max(0, Math.min(this.containerWidth - 60, newX));
-                newY = Math.max(0, Math.min(this.containerHeight - 80, newY));
+                const tankSize = 80;
+                newX = Math.max(0, Math.min(this.containerWidth - tankSize, newX));
+                newY = Math.max(0, Math.min(this.containerHeight - tankSize, newY));
 
-                if (moved) {
+                // Update position if moved
+                if (moved && (newX !== this.tankPosition.x || newY !== this.tankPosition.y)) {
                     this.tankPosition.x = newX;
                     this.tankPosition.y = newY;
                     this.updateTankPosition();
-                    this.updateTankRotation();
+                    this.isMoving = true;
+                } else if (moved) {
+                    // Hit boundary but still trying to move
+                    this.isMoving = true;
+                } else {
+                    this.isMoving = false;
                 }
             }
 
@@ -375,63 +548,73 @@
                 this.tank.style.top = this.tankPosition.y + 'px';
             }
 
-            updateTankRotation() {
-                let rotation = 0;
+            getBulletStartPosition() {
+                const tankCenter = {
+                    x: this.tankPosition.x + 40, // Center of 80px tank
+                    y: this.tankPosition.y + 40
+                };
+                
+                let bulletX = tankCenter.x - 3; // Center bullet
+                let bulletY = tankCenter.y - 3;
+                
+                // Position bullet at tank edge based on direction
                 switch(this.tankDirection) {
-                    case 'up': rotation = 0; break;
-                    case 'right': rotation = 90; break;
-                    case 'down': rotation = 180; break;
-                    case 'left': rotation = 270; break;
+                    case 'up':
+                        bulletY = this.tankPosition.y - 8;
+                        break;
+                    case 'down':
+                        bulletY = this.tankPosition.y + 88;
+                        break;
+                    case 'left':
+                        bulletX = this.tankPosition.x - 8;
+                        break;
+                    case 'right':
+                        bulletX = this.tankPosition.x + 88;
+                        break;
                 }
-                this.tank.style.transform = `rotate(${rotation}deg)`;
+
+                return { x: bulletX, y: bulletY };
             }
 
             shoot() {
+                const currentTime = Date.now();
+                if (currentTime - this.lastShotTime < this.shotCooldown) {
+                    return; // Still in cooldown
+                }
+                
+                this.lastShotTime = currentTime;
+                
                 const bullet = document.createElement('div');
                 bullet.className = 'bullet';
                 
-                let bulletX = this.tankPosition.x + 28; // Center of tank
-                let bulletY = this.tankPosition.y + 40; // Center of tank
+                const startPos = this.getBulletStartPosition();
                 
-                // Adjust bullet starting position based on direction
-                switch(this.tankDirection) {
-                    case 'up':
-                        bulletY = this.tankPosition.y - 5;
-                        break;
-                    case 'down':
-                        bulletY = this.tankPosition.y + 85;
-                        break;
-                    case 'left':
-                        bulletX = this.tankPosition.x - 5;
-                        break;
-                    case 'right':
-                        bulletX = this.tankPosition.x + 65;
-                        break;
-                }
-
-                bullet.style.left = bulletX + 'px';
-                bullet.style.top = bulletY + 'px';
+                bullet.style.left = startPos.x + 'px';
+                bullet.style.top = startPos.y + 'px';
                 
                 this.gameContainer.appendChild(bullet);
                 
                 this.bullets.push({
                     element: bullet,
-                    x: bulletX,
-                    y: bulletY,
+                    x: startPos.x,
+                    y: startPos.y,
                     direction: this.tankDirection
                 });
 
-                // Play shoot sound effect (visual feedback)
-                bullet.style.boxShadow = '0 0 8px #ffff00, 0 0 12px #ffff00';
+                console.log(`Bullet fired in direction: ${this.tankDirection}`);
+
+                // Visual feedback
+                bullet.style.boxShadow = '0 0 12px #ffff00, 0 0 18px #ffff00';
                 setTimeout(() => {
                     if (bullet.parentNode) {
-                        bullet.style.boxShadow = '0 0 4px #ffff00';
+                        bullet.style.boxShadow = '0 0 6px #ffff00';
                     }
                 }, 100);
             }
 
             updateBullets() {
                 this.bullets = this.bullets.filter(bullet => {
+                    // Move bullet based on its direction
                     switch(bullet.direction) {
                         case 'up':
                             bullet.y -= this.bulletSpeed;
@@ -451,8 +634,8 @@
                     bullet.element.style.top = bullet.y + 'px';
 
                     // Remove bullets that are off screen
-                    if (bullet.x < 0 || bullet.x > this.containerWidth || 
-                        bullet.y < 0 || bullet.y > this.containerHeight) {
+                    if (bullet.x < -20 || bullet.x > this.containerWidth + 20 || 
+                        bullet.y < -20 || bullet.y > this.containerHeight + 20) {
                         bullet.element.remove();
                         return false;
                     }
